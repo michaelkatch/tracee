@@ -194,7 +194,8 @@ Copyright (C) Aqua Security inc.
 #define SECURITY_BPF_MAP            1025
 #define SECURITY_KERNEL_READ_FILE   1026
 #define SECURITY_INODE_MKNOD        1027
-#define MAX_EVENT_ID                1028
+#define FULL_SOCKET_ACCEPT          1028
+#define MAX_EVENT_ID                1029
 
 #define NET_PACKET                      0
 #define DEBUG_NET_SECURITY_BIND         1
@@ -523,6 +524,8 @@ BPF_HASH(bin_args_map, u64, bin_args_t);                // Persist args for send
 BPF_HASH(sys_32_to_64_map, u32, u32);                   // Map 32bit syscalls numbers to 64bit syscalls numbers
 BPF_HASH(params_types_map, u32, u64);                   // Encoded parameters types for event
 BPF_HASH(process_tree_map, u32, u32);                   // Used to filter events by the ancestry of the traced process
+BPF_HASH(accept_socket_old, u32, u32);                      // Used to filter events by the ancestry of the traced process
+BPF_HASH(accept_socket_new, u32, u32);                      // Used to filter events by the ancestry of the traced process
 BPF_LRU_HASH(sock_ctx_map, u64, net_ctx_ext_t);         // Socket address to process context
 BPF_LRU_HASH(network_map, local_net_id_t, net_ctx_t);   // Network identifier to process context
 BPF_ARRAY(file_filter, path_filter_t, 3);               // Used to filter vfs_write events
@@ -2014,6 +2017,87 @@ out:
     return 0;
 }
 
+SEC("raw_tracepoint/sys_accept4")
+int syscall__accept4(void *ctx)
+{
+    event_data_t data = {};
+    if (!init_event_data(&data, ctx))
+        return 0;
+
+    syscall_data_t *sys = bpf_map_lookup_elem(&syscall_data_map, &data.context.host_tid);
+    if (!sys)
+        return -1;
+
+    int sockfd = (int)sys->args.args[0];
+    struct sockaddr *address = (struct sockaddr *)sys->args.args[1];
+    sa_family_t sa_fam = get_sockaddr_family(address);
+
+
+    save_to_submit_buf(&data, (void *)&sockfd, sizeof(int), 0);
+
+    struct sock* new_sock = bpf_map_lookup_elem(&accept_socket_new, &data.context.host_tid);
+    struct sock *sk = bpf_map_lookup_elem(&accept_socket_old, &data.context.host_tid);
+    if (sk == NULL) {
+    return -1;
+    }
+    if (new_sock == NULL) {
+        return -1;
+    }
+    u16 family_new = get_sock_family(new_sock);
+
+    // todo: delete from maps
+
+    u16 family = get_sock_family(sk);
+    save_to_submit_buf(&data, (void *)&family, sizeof(u16), 1);
+    save_to_submit_buf(&data, (void *)&family_new, sizeof(u16), 2);
+    save_to_submit_buf(&data, (void *)&sa_fam, sizeof(u16), 3);
+//    bpf_trace_printk("%u", sizeof(u16),family);
+//    bpf_trace_printk("%u", sizeof(u16),family_new);
+//    bpf_trace_printk("%u", sizeof(u16), sa_fam);
+
+//    if ( (family != AF_INET) && (family != AF_INET6) && (family != AF_UNIX)) {
+//        return 0;
+//    }
+
+//    if (sa_fam == AF_INET) {
+//        net_conn_v4_t net_details = {};
+//        get_network_details_from_sock_v4(sk, &net_details, 0);
+//
+//        struct sockaddr_in local;
+//        get_local_sockaddr_in_from_network_details(&local, &net_details, family);
+//
+//        save_to_submit_buf(&data, (void *)&local, sizeof(struct sockaddr_in), 1);
+//
+//        struct sockaddr_in remote;
+//        get_remote_sockaddr_in_from_network_details(&remote, &net_details, family);
+//
+//        save_to_submit_buf(&data, (void *)&remote, sizeof(struct sockaddr_in), 2);
+//    }
+//    else if (sa_fam == AF_INET6) {
+//        net_conn_v6_t net_details = {};
+//        get_network_details_from_sock_v6(sk, &net_details, 0);
+//
+//        struct sockaddr_in6 local;
+//        get_local_sockaddr_in6_from_network_details(&local, &net_details, family);
+//
+//        save_to_submit_buf(&data, (void *)&local, sizeof(struct sockaddr_in6), 1);
+//
+//        struct sockaddr_in6 remote;
+//        get_remote_sockaddr_in6_from_network_details(&remote, &net_details, family);
+//
+//        save_to_submit_buf(&data, (void *)&remote, sizeof(struct sockaddr_in6), 2);
+//    }
+//    else if (sa_fam == AF_UNIX) {
+//        struct unix_sock *unix_sk = (struct unix_sock *)sk;
+//        struct sockaddr_un sockaddr = get_unix_sock_addr(unix_sk);
+//        save_to_submit_buf(&data, (void *)&sockaddr, sizeof(struct sockaddr_un), 1);
+//        save_to_submit_buf(&data, (void *)&sockaddr, sizeof(struct sockaddr_un), 2);
+//    }
+
+    return events_perf_submit(&data, FULL_SOCKET_ACCEPT, 0);
+}
+
+
 SEC("raw_tracepoint/sys_execve")
 int syscall__execve(void *ctx)
 {
@@ -2711,8 +2795,14 @@ int BPF_KPROBE(trace_security_socket_accept)
     if (!should_trace(&data.context))
         return 0;
 
-    struct socket *sock = (struct socket *)PT_REGS_PARM1(ctx);
-    struct sock *sk = get_socket_sock(sock);
+    struct socket *old_sock = (struct socket *)PT_REGS_PARM1(ctx);
+    struct sock *sk = get_socket_sock(old_sock);
+
+    struct socket *new_sock = (struct socket *)PT_REGS_PARM2(ctx);
+    struct sock *sk_new = get_socket_sock(new_sock);
+    bpf_map_update_elem(&accept_socket_old, &data.context.host_tid, &sk, BPF_ANY);
+    bpf_map_update_elem(&accept_socket_new, &data.context.host_tid, &sk_new, BPF_ANY);
+
 
     u16 family = get_sock_family(sk);
     if ( (family != AF_INET) && (family != AF_INET6) && (family != AF_UNIX)) {
@@ -2752,6 +2842,75 @@ int BPF_KPROBE(trace_security_socket_accept)
 
     return events_perf_submit(&data, SECURITY_SOCKET_ACCEPT, 0);
 }
+
+//SEC("kretprobe/__sys_accept4_file")
+//int BPF_KPROBE(trace_sys_accept4_file)
+//{
+//    event_data_t data = {};
+//    if (!init_event_data(&data, ctx))
+//        return 0;
+//    struct socket* new_sock = bpf_map_lookup_elem(&accept_socket_new, &data.context.host_tid);
+//    struct socket* old_sock = bpf_map_lookup_elem(&accept_socket_old, &data.context.host_tid);
+//
+//    //bpf_map_delete_elem(&accept_socket, &data.context.host_tid);
+//    if (new_sock == NULL){
+//        return 0;
+//    }
+//    if (new_sock == NULL){
+//        return 0;
+//    }
+//    struct sock *sk = get_socket_sock(new_sock);
+//    u16 family = get_sock_family(sk);
+//    if ( (family != AF_INET) && (family != AF_INET6) && (family != AF_UNIX)) {
+//        return 0;
+//    }
+//    bpf_map_delete_elem(&accept_socket, &data.context.host_tid);
+//
+//
+//    // Load the arguments given to the accept syscall (which eventually invokes this function)
+//    syscall_data_t *sys = bpf_map_lookup_elem(&syscall_data_map, &data.context.host_tid);
+//    if (!sys || (sys->id != SYSCALL_ACCEPT && sys->id != SYSCALL_ACCEPT4))
+//        return 0;
+//
+//    save_to_submit_buf(&data, (void *)&sys->args.args[0], sizeof(u32), 0);
+//
+//    if (family == AF_INET) {
+//        net_conn_v4_t net_details = {};
+//        get_network_details_from_sock_v4(sk, &net_details, 0);
+//
+//        struct sockaddr_in local;
+//        get_local_sockaddr_in_from_network_details(&local, &net_details, family);
+//
+//        save_to_submit_buf(&data, (void *)&local, sizeof(struct sockaddr_in), 1);
+//
+//        struct sockaddr_in remote;
+//        get_remote_sockaddr_in_from_network_details(&remote, &net_details, family);
+//
+//        save_to_submit_buf(&data, (void *)&remote, sizeof(struct sockaddr_in), 2);
+//    }
+//    else if (family == AF_INET6) {
+//        net_conn_v6_t net_details = {};
+//        get_network_details_from_sock_v6(sk, &net_details, 0);
+//
+//        struct sockaddr_in6 local;
+//        get_local_sockaddr_in6_from_network_details(&local, &net_details, family);
+//
+//        save_to_submit_buf(&data, (void *)&local, sizeof(struct sockaddr_in6), 1);
+//
+//        struct sockaddr_in6 remote;
+//        get_remote_sockaddr_in6_from_network_details(&remote, &net_details, family);
+//        save_to_submit_buf(&data, (void *)&remote, sizeof(struct sockaddr_in6), 2);
+//
+//    }
+//    else if (family == AF_UNIX) {
+//        struct unix_sock *unix_sk = (struct unix_sock *)sk;
+//        struct sockaddr_un sockaddr = get_unix_sock_addr(unix_sk);
+//        save_to_submit_buf(&data, (void *)&sockaddr, sizeof(struct sockaddr_un), 1);
+//        save_to_submit_buf(&data, (void *)&sockaddr, sizeof(struct sockaddr_un), 2);
+//    }
+//
+//    return events_perf_submit(&data, SECURITY_SOCKET_ACCEPT, 0);
+//}
 
 SEC("kprobe/security_socket_bind")
 int BPF_KPROBE(trace_security_socket_bind)
@@ -3451,6 +3610,7 @@ int BPF_KPROBE(trace_ret_vfs_writev_tail)
 {
     return do_vfs_write_writev_tail(ctx, VFS_WRITEV);
 }
+
 
 SEC("kprobe/security_mmap_addr")
 int BPF_KPROBE(trace_mmap_alert)

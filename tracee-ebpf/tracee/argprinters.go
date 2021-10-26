@@ -130,6 +130,34 @@ func (t *Tracee) prepareArgs(ctx *context, args map[string]interface{}) error {
 			s = fmt.Sprintf("{%s}", s)
 			args["remote_addr"] = s
 		}
+	case FullSocketAcceptEventID:
+		if dom, isInt32 := args["family"].(int32); isInt32 {
+			args["family"] = helpers.ParseSocketDomain(uint32(dom))
+		}
+		if dom, isInt32 := args["old_family"].(int32); isInt32 {
+			args["old_family"] = helpers.ParseSocketDomain(uint32(dom))
+		}
+		if dom, isInt32 := args["new_family"].(int32); isInt32 {
+			args["new_family"] = helpers.ParseSocketDomain(uint32(dom))
+		}
+		if sockAddr, isStrMap := args["local_addr"].(map[string]string); isStrMap {
+			var s string
+			for key, val := range sockAddr {
+				s += fmt.Sprintf("'%s': '%s',", key, val)
+			}
+			s = strings.TrimSuffix(s, ",")
+			s = fmt.Sprintf("{%s}", s)
+			args["local_addr"] = s
+		}
+		if sockAddr, isStrMap := args["remote_addr"].(map[string]string); isStrMap {
+			var s string
+			for key, val := range sockAddr {
+				s += fmt.Sprintf("'%s': '%s',", key, val)
+			}
+			s = strings.TrimSuffix(s, ",")
+			s = fmt.Sprintf("{%s}", s)
+			args["remote_addr"] = s
+		}
 	case AccessEventID, FaccessatEventID:
 		if mode, isInt32 := args["mode"].(int32); isInt32 {
 			args["mode"] = helpers.ParseAccessMode(uint32(mode))

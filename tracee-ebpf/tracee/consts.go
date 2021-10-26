@@ -176,6 +176,7 @@ const (
 	SecurityBPFMapEventID
 	SecurityKernelReadFileEventID
 	SecurityInodeMknodEventID
+	FullSocketAcceptEventID
 	MaxEventID
 )
 
@@ -571,6 +572,7 @@ var EventsIDToEvent = map[int32]EventConfig{
 	SecuritySocketCreateEventID:   {ID: SecuritySocketCreateEventID, ID32Bit: sys32undefined, Name: "security_socket_create", Probes: []probe{{event: "security_socket_create", attach: kprobe, fn: "trace_security_socket_create"}}, Sets: []string{"default", "lsm_hooks", "net", "net_sock"}},
 	SecuritySocketListenEventID:   {ID: SecuritySocketListenEventID, ID32Bit: sys32undefined, Name: "security_socket_listen", Probes: []probe{{event: "security_socket_listen", attach: kprobe, fn: "trace_security_socket_listen"}}, Sets: []string{"default", "lsm_hooks", "net", "net_sock"}},
 	SecuritySocketConnectEventID:  {ID: SecuritySocketConnectEventID, ID32Bit: sys32undefined, Name: "security_socket_connect", Probes: []probe{{event: "security_socket_connect", attach: kprobe, fn: "trace_security_socket_connect"}}, Sets: []string{"default", "lsm_hooks", "net", "net_sock"}},
+	///SecuritySocketAcceptEventID:   {ID: SecuritySocketAcceptEventID, ID32Bit: sys32undefined, Name: "security_socket_accept", Probes: []probe{{event: "security_socket_accept", attach: kprobe, fn: "trace_security_socket_accept"},{event: "__sys_accept4_file", attach: kretprobe, fn: "trace_sys_accept4_file"}}, Sets: []string{"default", "lsm_hooks", "net", "net_sock"}},
 	SecuritySocketAcceptEventID:   {ID: SecuritySocketAcceptEventID, ID32Bit: sys32undefined, Name: "security_socket_accept", Probes: []probe{{event: "security_socket_accept", attach: kprobe, fn: "trace_security_socket_accept"}}, Sets: []string{"default", "lsm_hooks", "net", "net_sock"}},
 	SecuritySocketBindEventID:     {ID: SecuritySocketBindEventID, ID32Bit: sys32undefined, Name: "security_socket_bind", Probes: []probe{{event: "security_socket_bind", attach: kprobe, fn: "trace_security_socket_bind"}}, Sets: []string{"default", "lsm_hooks", "net", "net_sock"}},
 	SecuritySbMountEventID:        {ID: SecuritySbMountEventID, ID32Bit: sys32undefined, Name: "security_sb_mount", Probes: []probe{{event: "security_sb_mount", attach: kprobe, fn: "trace_security_sb_mount"}}, Sets: []string{"default", "lsm_hooks", "fs"}},
@@ -579,6 +581,7 @@ var EventsIDToEvent = map[int32]EventConfig{
 	SecurityKernelReadFileEventID: {ID: SecurityKernelReadFileEventID, ID32Bit: sys32undefined, Name: "security_kernel_read_file", Probes: []probe{{event: "security_kernel_read_file", attach: kprobe, fn: "trace_security_kernel_read_file"}}, Sets: []string{"lsm_hooks"}},
 	SecurityInodeMknodEventID:     {ID: SecurityInodeMknodEventID, ID32Bit: sys32undefined, Name: "security_inode_mknod", Probes: []probe{{event: "security_inode_mknod", attach: kprobe, fn: "trace_security_inode_mknod"}}, Sets: []string{"lsm_hooks"}},
 	InitNamespacesEventID:         {ID: InitNamespacesEventID, ID32Bit: sys32undefined, Name: "init_namespaces", Probes: []probe{}, Sets: []string{}},
+	FullSocketAcceptEventID:	   {ID: FullSocketAcceptEventID, ID32Bit: sys32undefined, Name: "full_socket_accept", Probes: []probe{}, Sets: []string{"net", "net_sock"}},
 }
 
 // EventsIDToParams is list of the parameters (name and type) used by the events
@@ -945,7 +948,7 @@ var EventsIDToParams = map[int32][]external.ArgMeta{
 	SecuritySocketCreateEventID:   {{Type: "int", Name: "family"}, {Type: "int", Name: "type"}, {Type: "int", Name: "protocol"}, {Type: "int", Name: "kern"}},
 	SecuritySocketListenEventID:   {{Type: "int", Name: "sockfd"}, {Type: "struct sockaddr*", Name: "local_addr"}, {Type: "int", Name: "backlog"}},
 	SecuritySocketConnectEventID:  {{Type: "int", Name: "sockfd"}, {Type: "struct sockaddr*", Name: "remote_addr"}},
-	SecuritySocketAcceptEventID:   {{Type: "int", Name: "sockfd"}, {Type: "struct sockaddr*", Name: "local_addr"}},
+	SecuritySocketAcceptEventID:   {{Type: "int", Name: "sockfd"}, {Type: "struct sockaddr*", Name: "local_addr"}, {Type: "struct sockaddr*", Name: "remote_addr"}},
 	SecuritySocketBindEventID:     {{Type: "int", Name: "sockfd"}, {Type: "struct sockaddr*", Name: "local_addr"}},
 	SecuritySbMountEventID:        {{Type: "const char*", Name: "dev_name"}, {Type: "const char*", Name: "path"}, {Type: "const char*", Name: "type"}, {Type: "unsigned long", Name: "flags"}},
 	SecurityBPFEventID:            {{Type: "int", Name: "cmd"}},
@@ -953,4 +956,6 @@ var EventsIDToParams = map[int32][]external.ArgMeta{
 	SecurityKernelReadFileEventID: {{Type: "const char*", Name: "pathname"}, {Type: "dev_t", Name: "dev"}, {Type: "unsigned long", Name: "inode"}, {Type: "int", Name: "type"}},
 	SecurityInodeMknodEventID:     {{Type: "const char*", Name: "file_name"}, {Type: "umode_t", Name: "mode"}, {Type: "dev_t", Name: "dev"}},
 	InitNamespacesEventID:         {{Type: "u32", Name: "cgroup"}, {Type: "u32", Name: "ipc"}, {Type: "u32", Name: "mnt"}, {Type: "u32", Name: "net"}, {Type: "u32", Name: "pid"}, {Type: "u32", Name: "pid_for_children"}, {Type: "u32", Name: "time"}, {Type: "u32", Name: "time_for_children"}, {Type: "u32", Name: "user"}, {Type: "u32", Name: "uts"}},
+	//FullSocketAcceptEventID:	   {{Type: "int", Name: "sockfd"}, {Type: "struct sockaddr*", Name: "local_addr"}, {Type: "struct sockaddr*", Name: "remote_addr"},{Type: "u16", Name: "old_family"},{Type: "u16", Name: "new_family"},{Type: "u16", Name: "family"}},
+	FullSocketAcceptEventID:	   {{Type: "int", Name: "sockfd"},{Type: "u16", Name: "old_family"},{Type: "u16", Name: "new_family"},{Type: "u16", Name: "family"}},
 }
