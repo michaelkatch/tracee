@@ -550,6 +550,12 @@ static __always_inline u32 get_mnt_ns_id(struct nsproxy *ns)
     struct mnt_namespace* mntns = READ_KERN(ns->mnt_ns);
     return READ_KERN(mntns->ns.inum);
 }
+static __always_inline const u32 get_user_ns_id(const struct cred *cred)
+{
+    struct user_namespace* userns = READ_KERN(cred->user_ns);
+    return READ_KERN(userns->ns.inum);
+}
+
 
 static __always_inline u32 get_pid_ns_id(struct nsproxy *ns)
 {
@@ -584,6 +590,11 @@ static __always_inline u32 get_cgroup_ns_id(struct nsproxy *ns)
 static __always_inline u32 get_task_mnt_ns_id(struct task_struct *task)
 {
     return get_mnt_ns_id(READ_KERN(task->nsproxy));
+}
+
+static __always_inline u32 get_task_cred_user_ns_id(struct task_struct *task)
+{
+    return get_user_ns_id(READ_KERN(task->cred));
 }
 
 static __always_inline u32 get_task_pid_ns_id(struct task_struct *task)
@@ -2495,6 +2506,7 @@ int BPF_KPROBE(trace_commit_creds)
 
     if (!should_trace(&data.context))
         return 0;
+    int user_namespace = get_task_cred_user_ns_id(data.task);
 
     struct cred *new = (struct cred *)PT_REGS_PARM1(ctx);
     struct cred *old = (struct cred *)get_task_real_cred(data.task);
@@ -2569,7 +2581,7 @@ int BPF_KPROBE(trace_commit_creds)
                 save_to_submit_buf(&data, (void*)&sys->id, sizeof(int), 2);
             }
         }
-
+        save_to_submit_buf(&data, (void *)&user_namespace, sizeof(int), 3);
         events_perf_submit(&data, COMMIT_CREDS, 0);
     }
 
