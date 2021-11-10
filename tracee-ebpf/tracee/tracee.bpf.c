@@ -420,8 +420,8 @@ typedef struct slim_cred {
     gid_t  egid;            /* effective GID of the task */
     uid_t  fsuid;           /* UID for VFS ops */
     gid_t  fsgid;           /* GID for VFS ops */
-    u32    user_ns;  /* User Namespace of the of the event */
-    u32	   securebits;      /* SUID-less security management */
+    u32    user_ns;         /* User Namespace of the of the event */
+    u32    securebits;      /* SUID-less security management */
     u64    cap_inheritable; /* caps our children can inherit */
     u64    cap_permitted;   /* caps we're permitted */
     u64    cap_effective;   /* caps we can actually use */
@@ -553,8 +553,6 @@ static __always_inline u32 get_mnt_ns_id(struct nsproxy *ns)
     return READ_KERN(mntns->ns.inum);
 }
 
-
-
 static __always_inline u32 get_pid_ns_id(struct nsproxy *ns)
 {
     struct pid_namespace* pidns = READ_KERN(ns->pid_ns_for_children);
@@ -589,8 +587,6 @@ static __always_inline u32 get_task_mnt_ns_id(struct task_struct *task)
 {
     return get_mnt_ns_id(READ_KERN(task->nsproxy));
 }
-
-
 
 static __always_inline u32 get_task_pid_ns_id(struct task_struct *task)
 {
@@ -2501,7 +2497,6 @@ int BPF_KPROBE(trace_commit_creds)
 
     if (!should_trace(&data.context))
         return 0;
-    //int user_namespace = get_task_cred_user_ns_id(data.task);
 
     struct cred *new = (struct cred *)PT_REGS_PARM1(ctx);
     struct cred *old = (struct cred *)get_task_real_cred(data.task);
@@ -2584,7 +2579,7 @@ int BPF_KPROBE(trace_commit_creds)
                 save_to_submit_buf(&data, (void*)&sys->id, sizeof(int), 2);
             }
         }
-        //save_to_submit_buf(&data, (void *)&user_namespace, sizeof(int), 3);
+        save_to_submit_buf(&data, (void *)&user_namespace, sizeof(int), 3);
         events_perf_submit(&data, COMMIT_CREDS, 0);
     }
 
