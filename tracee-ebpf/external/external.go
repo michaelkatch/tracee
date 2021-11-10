@@ -201,4 +201,6 @@ type SlimCred struct {
 	CapEffective   uint64 /* caps we can actually use */
 	CapBounding    uint64 /* capability bounding set */
 	CapAmbient     uint64 /* Ambient capability set */
+	UserNamespace  uint32 /* User Namespace of the of the event */
+	SecureBits     uint32  /* SUID-less security management */
 }

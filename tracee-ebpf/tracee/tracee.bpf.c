@@ -420,6 +420,8 @@ typedef struct slim_cred {
     gid_t  egid;            /* effective GID of the task */
     uid_t  fsuid;           /* UID for VFS ops */
     gid_t  fsgid;           /* GID for VFS ops */
+    u32    user_ns;  /* User Namespace of the of the event */
+    u32	   securebits;      /* SUID-less security management */
     u64    cap_inheritable; /* caps our children can inherit */
     u64    cap_permitted;   /* caps we're permitted */
     u64    cap_effective;   /* caps we can actually use */
@@ -550,11 +552,7 @@ static __always_inline u32 get_mnt_ns_id(struct nsproxy *ns)
     struct mnt_namespace* mntns = READ_KERN(ns->mnt_ns);
     return READ_KERN(mntns->ns.inum);
 }
-static __always_inline const u32 get_user_ns_id(const struct cred *cred)
-{
-    struct user_namespace* userns = READ_KERN(cred->user_ns);
-    return READ_KERN(userns->ns.inum);
-}
+
 
 
 static __always_inline u32 get_pid_ns_id(struct nsproxy *ns)
@@ -592,10 +590,7 @@ static __always_inline u32 get_task_mnt_ns_id(struct task_struct *task)
     return get_mnt_ns_id(READ_KERN(task->nsproxy));
 }
 
-static __always_inline u32 get_task_cred_user_ns_id(struct task_struct *task)
-{
-    return get_user_ns_id(READ_KERN(task->cred));
-}
+
 
 static __always_inline u32 get_task_pid_ns_id(struct task_struct *task)
 {
@@ -2506,13 +2501,17 @@ int BPF_KPROBE(trace_commit_creds)
 
     if (!should_trace(&data.context))
         return 0;
-    int user_namespace = get_task_cred_user_ns_id(data.task);
+    //int user_namespace = get_task_cred_user_ns_id(data.task);
 
     struct cred *new = (struct cred *)PT_REGS_PARM1(ctx);
     struct cred *old = (struct cred *)get_task_real_cred(data.task);
 
     slim_cred_t old_slim = {0};
     slim_cred_t new_slim = {0};
+
+    struct user_namespace* userns_old = READ_KERN(old->user_ns);
+    struct user_namespace* userns_new = READ_KERN(new->user_ns);
+
 
     old_slim.uid = READ_KERN(old->uid.val);
     old_slim.gid = READ_KERN(old->gid.val);
@@ -2522,6 +2521,8 @@ int BPF_KPROBE(trace_commit_creds)
     old_slim.egid = READ_KERN(old->egid.val);
     old_slim.fsuid = READ_KERN(old->fsuid.val);
     old_slim.fsgid = READ_KERN(old->fsgid.val);
+    old_slim.user_ns = READ_KERN(userns_old->ns.inum);
+    old_slim.securebits = READ_KERN(old->securebits);
 
     new_slim.uid = READ_KERN(new->uid.val);
     new_slim.gid = READ_KERN(new->gid.val);
@@ -2531,6 +2532,8 @@ int BPF_KPROBE(trace_commit_creds)
     new_slim.egid = READ_KERN(new->egid.val);
     new_slim.fsuid = READ_KERN(new->fsuid.val);
     new_slim.fsgid = READ_KERN(new->fsgid.val);
+    new_slim.user_ns = READ_KERN(userns_new->ns.inum);
+    new_slim.securebits = READ_KERN(new->securebits);
 
     // Currently, (2021), there are ~40 capabilities in the Linux kernel which are stored in an u32 array of length 2.
     // This might change in the (not so near) future as more capabilities will be added.
@@ -2581,7 +2584,7 @@ int BPF_KPROBE(trace_commit_creds)
                 save_to_submit_buf(&data, (void*)&sys->id, sizeof(int), 2);
             }
         }
-        save_to_submit_buf(&data, (void *)&user_namespace, sizeof(int), 3);
+        //save_to_submit_buf(&data, (void *)&user_namespace, sizeof(int), 3);
         events_perf_submit(&data, COMMIT_CREDS, 0);
     }
 
