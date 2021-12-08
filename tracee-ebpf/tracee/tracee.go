@@ -657,6 +657,11 @@ func (t *Tracee) populateBPFMaps() error {
 			if err = t.initTailCall(eU32, "sys_exit_tails", "sys_dup_exit_tail"); err != nil {
 				return err
 			}
+		} else if e == Accept4EventID || e == AcceptEventID {
+			err = t.initTailCall(uint32(e), "sys_exit_tails", "syscall__accept4")
+			if err != nil {
+				return err
+			}
 		}
 	}
 

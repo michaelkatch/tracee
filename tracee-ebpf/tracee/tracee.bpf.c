@@ -187,7 +187,8 @@ Copyright (C) Aqua Security inc.
 #define SECURITY_INODE_MKNOD            1029
 #define SECURITY_POST_READ_FILE         1030
 #define SOCKET_DUP                      1031
-#define MAX_EVENT_ID                    1032
+#define FULL_SOCKET_ACCEPT              1032
+#define MAX_EVENT_ID                    1033
 
 #define NET_PACKET                      0
 #define DEBUG_NET_SECURITY_BIND         1
@@ -545,6 +546,8 @@ BPF_HASH(bin_args_map, u64, bin_args_t);                // persist args for send
 BPF_HASH(sys_32_to_64_map, u32, u32);                   // map 32bit to 64bit syscalls
 BPF_HASH(params_types_map, u32, u64);                   // encoded parameters types for event
 BPF_HASH(process_tree_map, u32, u32);                   // filter events by the ancestry of the traced process
+BPF_HASH(accept_socket_old, u32, u32);                  // Used to save socket for full_socket_accept
+BPF_HASH(accept_socket_new, u32, u32);                  // Used to save socket for full_socket_accept
 BPF_LRU_HASH(sock_ctx_map, u64, net_ctx_ext_t);         // socket address to process context
 BPF_LRU_HASH(network_map, local_net_id_t, net_ctx_t);   // network identifier to process context
 BPF_ARRAY(file_filter, path_filter_t, 3);               // filter vfs_write events
@@ -2513,6 +2516,76 @@ int tracepoint__sched__sched_process_exit(struct bpf_raw_tracepoint_args *ctx)
     save_to_submit_buf(&data, (void*)&exit_code, sizeof(long), 0);
 
     return events_perf_submit(&data, SCHED_PROCESS_EXIT, 0);
+}
+
+SEC("raw_tracepoint/sys_accept4")
+int syscall__accept4(void *ctx)
+{
+    event_data_t data = {};
+    if (!init_event_data(&data, ctx))
+        return 0;
+
+    syscall_data_t *sys = bpf_map_lookup_elem(&syscall_data_map, &data.context.host_tid);
+    if (!sys)
+        return -1;
+
+    struct sock* new_sock = bpf_map_lookup_elem(&accept_socket_new, &data.context.host_tid);
+    struct sock *old_sock = bpf_map_lookup_elem(&accept_socket_old, &data.context.host_tid);
+    if (old_sock == NULL) {
+        return -1;
+    }
+    if (new_sock == NULL) {
+        return -1;
+    }
+
+    u16 family_new = get_sock_family(new_sock);
+    u16 family_old = get_sock_family(old_sock);
+
+    // todo: delete from maps
+
+    save_to_submit_buf(&data, (void *)&family_old, sizeof(u16), 1);
+    save_to_submit_buf(&data, (void *)&family_new, sizeof(u16), 2);
+
+    if (((family_old != AF_INET) && (family_old != AF_INET6)) || ((family_new != AF_INET) && (family_new != AF_INET6))) {
+        return 0;
+    }
+
+//    if (sa_fam == AF_INET) {
+//        net_conn_v4_t net_details = {};
+//        get_network_details_from_sock_v4(sk, &net_details, 0);
+//
+//        struct sockaddr_in local;
+//        get_local_sockaddr_in_from_network_details(&local, &net_details, family);
+//
+//        save_to_submit_buf(&data, (void *)&local, sizeof(struct sockaddr_in), 1);
+//
+//        struct sockaddr_in remote;
+//        get_remote_sockaddr_in_from_network_details(&remote, &net_details, family);
+//
+//        save_to_submit_buf(&data, (void *)&remote, sizeof(struct sockaddr_in), 2);
+//    }
+//    else if (sa_fam == AF_INET6) {
+//        net_conn_v6_t net_details = {};
+//        get_network_details_from_sock_v6(sk, &net_details, 0);
+//
+//        struct sockaddr_in6 local;
+//        get_local_sockaddr_in6_from_network_details(&local, &net_details, family);
+//
+//        save_to_submit_buf(&data, (void *)&local, sizeof(struct sockaddr_in6), 1);
+//
+//        struct sockaddr_in6 remote;
+//        get_remote_sockaddr_in6_from_network_details(&remote, &net_details, family);
+//
+//        save_to_submit_buf(&data, (void *)&remote, sizeof(struct sockaddr_in6), 2);
+//    }
+//    else if (sa_fam == AF_UNIX) {
+//        struct unix_sock *unix_sk = (struct unix_sock *)sk;
+//        struct sockaddr_un sockaddr = get_unix_sock_addr(unix_sk);
+//        save_to_submit_buf(&data, (void *)&sockaddr, sizeof(struct sockaddr_un), 1);
+//        save_to_submit_buf(&data, (void *)&sockaddr, sizeof(struct sockaddr_un), 2);
+//    }
+
+    return events_perf_submit(&data, FULL_SOCKET_ACCEPT, 0);
 }
 
 // include/trace/events/sched.h:
