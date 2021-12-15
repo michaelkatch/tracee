@@ -970,5 +970,5 @@ var EventsIDToParams = map[int32][]external.ArgMeta{
 	SecurityInodeMknodEventID:     {{Type: "const char*", Name: "file_name"}, {Type: "umode_t", Name: "mode"}, {Type: "dev_t", Name: "dev"}},
 	InitNamespacesEventID:         {{Type: "u32", Name: "cgroup"}, {Type: "u32", Name: "ipc"}, {Type: "u32", Name: "mnt"}, {Type: "u32", Name: "net"}, {Type: "u32", Name: "pid"}, {Type: "u32", Name: "pid_for_children"}, {Type: "u32", Name: "time"}, {Type: "u32", Name: "time_for_children"}, {Type: "u32", Name: "user"}, {Type: "u32", Name: "uts"}},
 	SocketDupEventID:              {{Type: "int", Name: "oldfd"}, {Type: "int", Name: "newfd"}, {Type: "struct sockaddr*", Name: "remote_addr"}},
-	FullSocketAcceptEventID:       {{Type: "int", Name: "sockfd"}, {Type: "umode_t", Name: "old_family"}, {Type: "umode_t", Name: "new_family"}},
+	FullSocketAcceptEventID:       {{Type: "int", Name: "sockfd"}, {Type: "struct sockaddr*", Name: "old_family"}, {Type: "struct sockaddr*", Name: "new_family"}},
 }

@@ -2537,6 +2537,9 @@ int syscall__accept4(void *ctx)
     struct socket** new_sock = bpf_map_lookup_elem(&accept_socket_new, &data.context.host_tid);
 
     struct socket** old_sock = bpf_map_lookup_elem(&accept_socket_old, &data.context.host_tid);
+    bpf_map_delete_elem(&accept_socket_new, &data.context.host_tid);
+    bpf_map_delete_elem(&accept_socket_old, &data.context.host_tid);
+
     if (new_sock == NULL) {
         return -1;
     }
@@ -2550,41 +2553,38 @@ int syscall__accept4(void *ctx)
     u16 family_old = get_sock_family(sk_old);
     u16 family_new = get_sock_family(sk_new);
 
-    // todo: delete from maps
-
-    //save_to_submit_buf(&data, (void *)&family_old, sizeof(u16), 1);
-    //save_to_submit_buf(&data, (void *)&family_new, sizeof(u16), 2);
-    //save_to_submit_buf(&data, (void *)&family_new, sizeof(u16), 2);
-
     if (((family_old != AF_INET) && (family_old != AF_INET6)) || ((family_new != AF_INET) && (family_new != AF_INET6))) {
         return 0;
     }
 
-    if (family_old == AF_INET) {
-        net_conn_v4_t net_details = {};
-        get_network_details_from_sock_v4(sk_old, &net_details, 0);
-
+    if (family_old == AF_INET && family_new == AF_INET) {
+        net_conn_v4_t net_details_old = {};
+        get_network_details_from_sock_v4(sk_old, &net_details_old, 0);
         struct sockaddr_in local;
-        get_local_sockaddr_in_from_network_details(&local, &net_details, family_old);
+        get_local_sockaddr_in_from_network_details(&local, &net_details_old, family_old);
 
         save_to_submit_buf(&data, (void *)&local, sizeof(struct sockaddr_in), 1);
 
+        net_conn_v4_t net_details_new = {};
+        get_network_details_from_sock_v4(sk_new, &net_details_new, 0);
         struct sockaddr_in remote;
-        get_remote_sockaddr_in_from_network_details(&remote, &net_details, family_new);
+        get_remote_sockaddr_in_from_network_details(&remote, &net_details_new, family_new);
 
         save_to_submit_buf(&data, (void *)&remote, sizeof(struct sockaddr_in), 2);
     }
-    else if (family_old == AF_INET6) {
-        net_conn_v6_t net_details = {};
-        get_network_details_from_sock_v6(sk_old, &net_details, 0);
-
+    else if (family_old == AF_INET6 && family_new == AF_INET6) {
+        net_conn_v6_t net_details_old = {};
+        get_network_details_from_sock_v6(sk_old, &net_details_old, 0);
         struct sockaddr_in6 local;
-        get_local_sockaddr_in6_from_network_details(&local, &net_details, family_old);
+        get_local_sockaddr_in6_from_network_details(&local, &net_details_old, family_old);
 
         save_to_submit_buf(&data, (void *)&local, sizeof(struct sockaddr_in6), 1);
 
+         net_conn_v6_t net_details_new = {};
+         get_network_details_from_sock_v6(sk_new, &net_details_new, 0);
+
         struct sockaddr_in6 remote;
-        get_remote_sockaddr_in6_from_network_details(&remote, &net_details, family_new);
+        get_remote_sockaddr_in6_from_network_details(&remote, &net_details_new, family_new);
 
         save_to_submit_buf(&data, (void *)&remote, sizeof(struct sockaddr_in6), 2);
     }
