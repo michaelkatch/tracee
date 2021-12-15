@@ -996,6 +996,11 @@ static __always_inline struct sock* get_socket_sock(struct socket *socket)
     return READ_KERN(socket->sk);
 }
 
+static __always_inline struct sock* get_socket_sock_usr(struct socket *socket)
+{
+    return READ_USER(socket->sk);
+}
+
 static __always_inline u16 get_sock_family(struct sock *sock)
 {
     return READ_KERN(sock->sk_family);
@@ -2529,8 +2534,9 @@ int syscall__accept4(void *ctx)
     if (!sys)
         return -1;
 
-    struct socket* new_sock = bpf_map_lookup_elem(&accept_socket_new, &data.context.host_tid);
-    struct socket *old_sock = bpf_map_lookup_elem(&accept_socket_old, &data.context.host_tid);
+    struct socket** new_sock = bpf_map_lookup_elem(&accept_socket_new, &data.context.host_tid);
+
+    struct socket** old_sock = bpf_map_lookup_elem(&accept_socket_old, &data.context.host_tid);
     if (new_sock == NULL) {
         return -1;
     }
@@ -2538,57 +2544,56 @@ int syscall__accept4(void *ctx)
         return -1;
     }
 
-    struct sock *sk_new = get_socket_sock(new_sock);
-    struct sock *sk_old = get_socket_sock(old_sock);
+    struct sock *sk_new = get_socket_sock(*new_sock);
+    struct sock *sk_old = get_socket_sock(*old_sock);
 
     u16 family_old = get_sock_family(sk_old);
     u16 family_new = get_sock_family(sk_new);
 
     // todo: delete from maps
 
-    save_to_submit_buf(&data, (void *)&family_old, sizeof(u16), 1);
-    save_to_submit_buf(&data, (void *)&family_new, sizeof(u16), 2);
+    //save_to_submit_buf(&data, (void *)&family_old, sizeof(u16), 1);
+    //save_to_submit_buf(&data, (void *)&family_new, sizeof(u16), 2);
     //save_to_submit_buf(&data, (void *)&family_new, sizeof(u16), 2);
 
-//    if (((family_old != AF_INET) && (family_old != AF_INET6)) || ((family_new != AF_INET) && (family_new != AF_INET6))) {
-//        return 0;
-//    }
+    if (((family_old != AF_INET) && (family_old != AF_INET6)) || ((family_new != AF_INET) && (family_new != AF_INET6))) {
+        return 0;
+    }
 
-//    if (sa_fam == AF_INET) {
-//        net_conn_v4_t net_details = {};
-//        get_network_details_from_sock_v4(sk, &net_details, 0);
-//
-//        struct sockaddr_in local;
-//        get_local_sockaddr_in_from_network_details(&local, &net_details, family);
-//
-//        save_to_submit_buf(&data, (void *)&local, sizeof(struct sockaddr_in), 1);
-//
-//        struct sockaddr_in remote;
-//        get_remote_sockaddr_in_from_network_details(&remote, &net_details, family);
-//
-//        save_to_submit_buf(&data, (void *)&remote, sizeof(struct sockaddr_in), 2);
-//    }
-//    else if (sa_fam == AF_INET6) {
-//        net_conn_v6_t net_details = {};
-//        get_network_details_from_sock_v6(sk, &net_details, 0);
-//
-//        struct sockaddr_in6 local;
-//        get_local_sockaddr_in6_from_network_details(&local, &net_details, family);
-//
-//        save_to_submit_buf(&data, (void *)&local, sizeof(struct sockaddr_in6), 1);
-//
-//        struct sockaddr_in6 remote;
-//        get_remote_sockaddr_in6_from_network_details(&remote, &net_details, family);
-//
-//        save_to_submit_buf(&data, (void *)&remote, sizeof(struct sockaddr_in6), 2);
-//    }
-//    else if (sa_fam == AF_UNIX) {
+    if (family_old == AF_INET) {
+        net_conn_v4_t net_details = {};
+        get_network_details_from_sock_v4(sk_old, &net_details, 0);
+
+        struct sockaddr_in local;
+        get_local_sockaddr_in_from_network_details(&local, &net_details, family_old);
+
+        save_to_submit_buf(&data, (void *)&local, sizeof(struct sockaddr_in), 1);
+
+        struct sockaddr_in remote;
+        get_remote_sockaddr_in_from_network_details(&remote, &net_details, family_new);
+
+        save_to_submit_buf(&data, (void *)&remote, sizeof(struct sockaddr_in), 2);
+    }
+    else if (family_old == AF_INET6) {
+        net_conn_v6_t net_details = {};
+        get_network_details_from_sock_v6(sk_old, &net_details, 0);
+
+        struct sockaddr_in6 local;
+        get_local_sockaddr_in6_from_network_details(&local, &net_details, family_old);
+
+        save_to_submit_buf(&data, (void *)&local, sizeof(struct sockaddr_in6), 1);
+
+        struct sockaddr_in6 remote;
+        get_remote_sockaddr_in6_from_network_details(&remote, &net_details, family_new);
+
+        save_to_submit_buf(&data, (void *)&remote, sizeof(struct sockaddr_in6), 2);
+    }
+//    else if (old_sock == AF_UNIX) {
 //        struct unix_sock *unix_sk = (struct unix_sock *)sk;
 //        struct sockaddr_un sockaddr = get_unix_sock_addr(unix_sk);
 //        save_to_submit_buf(&data, (void *)&sockaddr, sizeof(struct sockaddr_un), 1);
 //        save_to_submit_buf(&data, (void *)&sockaddr, sizeof(struct sockaddr_un), 2);
 //    }
-
     return events_perf_submit(&data, FULL_SOCKET_ACCEPT, 0);
 }
 
@@ -3131,7 +3136,6 @@ int BPF_KPROBE(trace_security_socket_accept)
     struct sock *sk = get_socket_sock(sock);
 
      struct socket *new_sock = (struct socket *)PT_REGS_PARM2(ctx);
-     //struct sock *sk_new = get_socket_sock(new_sock);
 
     bpf_map_update_elem(&accept_socket_old, &data.context.host_tid, &sock, BPF_ANY);
     bpf_map_update_elem(&accept_socket_new, &data.context.host_tid, &new_sock, BPF_ANY);
