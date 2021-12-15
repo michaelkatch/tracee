@@ -546,8 +546,8 @@ BPF_HASH(bin_args_map, u64, bin_args_t);                // persist args for send
 BPF_HASH(sys_32_to_64_map, u32, u32);                   // map 32bit to 64bit syscalls
 BPF_HASH(params_types_map, u32, u64);                   // encoded parameters types for event
 BPF_HASH(process_tree_map, u32, u32);                   // filter events by the ancestry of the traced process
-BPF_HASH(accept_socket_old, u32, u32);                  // Used to save socket for full_socket_accept
-BPF_HASH(accept_socket_new, u32, u32);                  // Used to save socket for full_socket_accept
+BPF_HASH(accept_socket_old, u64, u32);                  // Used to save socket for full_socket_accept
+BPF_HASH(accept_socket_new, u64, u32);                  // Used to save socket for full_socket_accept
 BPF_LRU_HASH(sock_ctx_map, u64, net_ctx_ext_t);         // socket address to process context
 BPF_LRU_HASH(network_map, local_net_id_t, net_ctx_t);   // network identifier to process context
 BPF_ARRAY(file_filter, path_filter_t, 3);               // filter vfs_write events
@@ -2529,26 +2529,30 @@ int syscall__accept4(void *ctx)
     if (!sys)
         return -1;
 
-    struct sock* new_sock = bpf_map_lookup_elem(&accept_socket_new, &data.context.host_tid);
-    struct sock *old_sock = bpf_map_lookup_elem(&accept_socket_old, &data.context.host_tid);
-    if (old_sock == NULL) {
-        return -1;
-    }
+    struct socket* new_sock = bpf_map_lookup_elem(&accept_socket_new, &data.context.host_tid);
+    struct socket *old_sock = bpf_map_lookup_elem(&accept_socket_old, &data.context.host_tid);
     if (new_sock == NULL) {
         return -1;
     }
+    if (old_sock == NULL) {
+        return -1;
+    }
 
-    u16 family_new = get_sock_family(new_sock);
-    u16 family_old = get_sock_family(old_sock);
+    struct sock *sk_new = get_socket_sock(new_sock);
+    struct sock *sk_old = get_socket_sock(old_sock);
+
+    u16 family_old = get_sock_family(sk_old);
+    u16 family_new = get_sock_family(sk_new);
 
     // todo: delete from maps
 
     save_to_submit_buf(&data, (void *)&family_old, sizeof(u16), 1);
     save_to_submit_buf(&data, (void *)&family_new, sizeof(u16), 2);
+    //save_to_submit_buf(&data, (void *)&family_new, sizeof(u16), 2);
 
-    if (((family_old != AF_INET) && (family_old != AF_INET6)) || ((family_new != AF_INET) && (family_new != AF_INET6))) {
-        return 0;
-    }
+//    if (((family_old != AF_INET) && (family_old != AF_INET6)) || ((family_new != AF_INET) && (family_new != AF_INET6))) {
+//        return 0;
+//    }
 
 //    if (sa_fam == AF_INET) {
 //        net_conn_v4_t net_details = {};
@@ -3125,6 +3129,12 @@ int BPF_KPROBE(trace_security_socket_accept)
 
     struct socket *sock = (struct socket *)PT_REGS_PARM1(ctx);
     struct sock *sk = get_socket_sock(sock);
+
+     struct socket *new_sock = (struct socket *)PT_REGS_PARM2(ctx);
+     //struct sock *sk_new = get_socket_sock(new_sock);
+
+    bpf_map_update_elem(&accept_socket_old, &data.context.host_tid, &sock, BPF_ANY);
+    bpf_map_update_elem(&accept_socket_new, &data.context.host_tid, &new_sock, BPF_ANY);
 
     u16 family = get_sock_family(sk);
     if ( (family != AF_INET) && (family != AF_INET6) && (family != AF_UNIX)) {
